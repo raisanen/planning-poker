@@ -1,45 +1,59 @@
 import React from 'react';
-import { Provider, connect } from 'react-redux';
+import { Text } from 'react-native';
 import { DefaultTheme, Provider as PaperProvider } from 'react-native-paper';
 import { createAppContainer, createStackNavigator } from 'react-navigation';
 
-import store from './redux/store';
-import { logIn, logOut } from './redux/actions';
+import { Font } from 'expo';
 
-import { Home } from './src/views/home.js';
+import PusherClient from './src/pusher-client';
+
+import { Home } from './src/views/home';
 
 /// Material-config:
 const theme = {
   ...DefaultTheme,
   colors: {
     ...DefaultTheme.colors,
+  },
+  fonts: {
+    regular: 'sourcesans-regular',
+    medium: 'sourcesans-semibold',
+    light: 'sourcesans-light',
+    thin: 'sourcesans-extralight'
   }
 };
 
-const mapStateToProps = state => {
-  return { 
-    user: state.user 
-  }
-};
-const mapDispatchToProps = {
-  logIn, logOut
-};
 
 /// Router-config:
 const RootStack = createStackNavigator({
-  Home: connect(mapStateToProps, mapDispatchToProps)(Home)
+  Home: Home
 });
 const AppNavigation = createAppContainer(RootStack);
 
 
 export default class App extends React.Component {
+  state = {
+    isLoading: true
+  }
+
+  async componentDidMount() {
+    await Font.loadAsync({
+      'sourcesans-regular': require('./assets/fonts/sourcesans-regular.ttf'),
+      'sourcesans-semibold': require('./assets/fonts/sourcesans-semibold.ttf'),
+      'sourcesans-light': require('./assets/fonts/sourcesans-light.ttf'),
+      'sourcesans-extralight': require('./assets/fonts/sourcesans-extralight.ttf'),
+    });
+    this.setState({ isLoading: false });
+  }
+
   render() {
     return (
-      <Provider store={store}>
-        <PaperProvider theme={theme}>
-          <AppNavigation/>
-        </PaperProvider>
-      </Provider>
+      <PaperProvider theme={theme}>
+        {this.state.isLoading 
+          ? <Text>Loading...</Text>
+          : <AppNavigation/>
+        }
+      </PaperProvider>
     );
   }
 }
