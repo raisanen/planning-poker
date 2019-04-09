@@ -2,12 +2,10 @@ import React from 'react';
 import { Text } from 'react-native';
 import { DefaultTheme, Provider as PaperProvider } from 'react-native-paper';
 import { createAppContainer, createStackNavigator } from 'react-navigation';
-
 import { Font } from 'expo';
 
-import PusherClient from './src/pusher-client';
-
 import { Home } from './src/views/home';
+import { Project } from './src/views/project';
 
 /// Material-config:
 const theme = {
@@ -23,14 +21,15 @@ const theme = {
   }
 };
 
-
 /// Router-config:
 const RootStack = createStackNavigator({
-  Home: Home
+  Home: Home,
+  Project: Project
 });
 const AppNavigation = createAppContainer(RootStack);
 
 
+/// RootView:
 export default class App extends React.Component {
   state = {
     isLoading: true
