@@ -1,17 +1,20 @@
 import React from 'react';
-import { Text } from 'react-native';
-import { DefaultTheme, Provider as PaperProvider } from 'react-native-paper';
+import { ActivityIndicator, Colors, DarkTheme as DefaultTheme, Provider as PaperProvider } from 'react-native-paper';
 import { createAppContainer, createStackNavigator } from 'react-navigation';
 import { Font } from 'expo';
 
 import { Home } from './src/views/home';
 import { Project } from './src/views/project';
+import { MainView } from './src/views/common';
 
 /// Material-config:
 const theme = {
   ...DefaultTheme,
   colors: {
     ...DefaultTheme.colors,
+    background: Colors.grey900,
+    primary: Colors.lightBlue400,
+    accent: Colors.amber800
   },
   fonts: {
     regular: 'sourcesans-regular',
@@ -23,8 +26,10 @@ const theme = {
 
 /// Router-config:
 const RootStack = createStackNavigator({
-  Home: Home,
-  Project: Project
+  Home: { screen: Home },
+  Project: { screen: Project}
+}, {
+  initialRouteName: 'Home'
 });
 const AppNavigation = createAppContainer(RootStack);
 
@@ -46,13 +51,15 @@ export default class App extends React.Component {
   }
 
   render() {
-    return (
-      <PaperProvider theme={theme}>
-        {this.state.isLoading 
-          ? <Text>Loading...</Text>
-          : <AppNavigation/>
-        }
-      </PaperProvider>
-    );
+    return this.state.isLoading
+      ? <MainView theme={DefaultTheme}>
+          <View style={{flex: 1, justifyContent: 'center', alignItems: 'center'}}>
+            <ActivityIndicator animating={true} size="large" color={DefaultTheme.colors.accent} />
+          </View>
+        </MainView>
+      : <PaperProvider theme={theme}>
+          <AppNavigation />
+        </PaperProvider>
+      ;
   }
 }
