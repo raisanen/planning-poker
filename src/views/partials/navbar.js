@@ -33,6 +33,7 @@ class NavbarComponent extends React.Component {
                         label={item.label}
                         onPress={item.onPress}
                         isActive={item.isActive}
+                        icon={item.icon}
                     />
                 })}
             </View>

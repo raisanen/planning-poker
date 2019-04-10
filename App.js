@@ -1,11 +1,12 @@
 import React from 'react';
+import { View } from 'react-native';
 import { ActivityIndicator, Colors, DarkTheme as DefaultTheme, Provider as PaperProvider } from 'react-native-paper';
 import { createAppContainer, createStackNavigator } from 'react-navigation';
 import { Font } from 'expo';
 
 import { Home } from './src/views/home';
 import { Project } from './src/views/project';
-import { MainView } from './src/views/common';
+import { MainView, CenteredView } from './src/views/common';
 
 /// Material-config:
 const theme = {
@@ -52,11 +53,9 @@ export default class App extends React.Component {
 
   render() {
     return this.state.isLoading
-      ? <MainView theme={DefaultTheme}>
-          <View style={{flex: 1, justifyContent: 'center', alignItems: 'center'}}>
-            <ActivityIndicator animating={true} size="large" color={DefaultTheme.colors.accent} />
-          </View>
-        </MainView>
+      ? <CenteredView theme={DefaultTheme}>
+          <ActivityIndicator animating={true} size="large" color={DefaultTheme.colors.accent} />
+        </CenteredView>
       : <PaperProvider theme={theme}>
           <AppNavigation />
         </PaperProvider>

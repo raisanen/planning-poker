@@ -6,12 +6,13 @@ import { View } from 'react-native';
 import { SecureStore } from 'expo';
 
 import { Navbar } from './partials/navbar';
-import { MainView } from './common';
+import { CommonStyles, MainView, Spacer } from './common';
 
 export class HomeComponent extends React.Component {
     state = {
         groupID: '',
         username: '',
+        groupName: '',
         isLoading: true,
         creatingGroup: false
     };
@@ -25,19 +26,23 @@ export class HomeComponent extends React.Component {
 
     createOrOpenGroup = async () => {
         const { navigation } = this.props,
-            { groupID, username, creatingGroup } = this.state;
+            { groupID, groupName, username, creatingGroup } = this.state;
 
         if (!creatingGroup) {
             await SecureStore.setItemAsync('groupID', groupID);
         }
         await SecureStore.setItemAsync('username', username);
         
-        navigation.push('Project', { groupID: creatingGroup ? null : groupID, username });
+        navigation.push('Project', { 
+            groupID: creatingGroup ? null : groupID,
+            groupName: groupName,
+            username
+        });
     };
 
     render() {
         const isCreating = this.state.creatingGroup,
-            formComplete = !!this.state.username && (!!this.state.groupID || isCreating),
+            formComplete = !!this.state.username && (isCreating ? !!this.state.groupName : !!this.state.groupID),
             { theme } = this.props,
             { colors } = theme,
             navBar = [
@@ -65,25 +70,39 @@ export class HomeComponent extends React.Component {
                 </Appbar.Header>
                 <MainView theme={theme}>
                     <Navbar theme={theme} items={navBar}/>
-                    <TextInput
-                        label='Your name'
-                        value={this.state.username}
-                        onChangeText={username => this.setState({ username })}
-                    />
-                    {this.state.creatingGroup ||
+                    <View style={[CommonStyles.sidePadding]}>
+                        <Spacer height={10}/>
                         <TextInput
-                            label='Group ID'
-                            value={this.state.groupID}
-                            onChangeText={groupID => this.setState({ groupID })}
+                            label='Your name'
+                            value={this.state.username}
+                            onChangeText={username => this.setState({ username })}
                         />
-                    }
+                        <Spacer/>
+                        {this.state.creatingGroup 
+                            ? <TextInput
+                                label='Group name'
+                                value={this.state.groupName}
+                                onChangeText={groupName => this.setState({ groupName })}
+                              />
+                            : <TextInput
+                                label='Group ID'
+                                value={this.state.groupID}
+                                onChangeText={groupID => this.setState({ groupID })}
+                            />
+                        }
+                        <Spacer height={2} />
 
-                    <Button icon="link" mode="contained" color={colors.primary}
-                        disabled={!formComplete}
-                        onPress={this.createOrOpenGroup}>
-                        {isCreating ? 'Create' : 'Connect'}
-                    </Button>
+                        <Button
+                            style={{padding: 8}}
+                            icon={isCreating ? 'group-add' : 'group'} mode="contained"
+                            color={colors.primary}
+                            disabled={!formComplete}
+                            onPress={this.createOrOpenGroup}>
+                            {isCreating ? 'Create' : 'Connect'}
+                        </Button>
 
+                        <Spacer height={5} />
+                    </View>
                 </MainView>
             </Portal>
         )
