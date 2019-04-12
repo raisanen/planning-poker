@@ -36,7 +36,7 @@ export class HomeComponent extends React.Component {
         navigation.push('Project', { 
             groupID: creatingGroup ? null : groupID,
             groupName: groupName,
-            username
+            username: username.toLowerCase()
         });
     };
 

@@ -47,6 +47,10 @@ export const CommonStyles = StyleSheet.create({
         paddingLeft: baseUnit * 5,
         paddingRight: baseUnit * 5
     },
+    vertPadding: {
+        paddingTop: baseUnit * 2,
+        paddingBottom: baseUnit * 2
+    },
     flexCentered: {
         flex: 1,
         justifyContent: 'center',
