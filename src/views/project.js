@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { Text, Appbar, Button, Portal, Divider, Surface, ActivityIndicator, withTheme, List, Title, Subheading, HelperText, TextInput } from 'react-native-paper';
+import { Appbar, Button, FAB, Portal, Divider, Surface, ActivityIndicator, withTheme, List, Title, Subheading, HelperText, Text, TextInput, Paragraph } from 'react-native-paper';
 import { Dimensions, StyleSheet, View } from 'react-native';
 import QRCode from 'react-qr-code';
 
@@ -29,6 +29,11 @@ class ProjectComponent extends React.Component {
 
         currentEstimate: null,
 
+        estimationStatus: null,
+        estimationTimeout: null,
+        timeLeftString: '',
+        timeoutStartedAt: 0,
+
         showCode: false,
 
         shouldEstimate: false,
@@ -46,12 +51,12 @@ class ProjectComponent extends React.Component {
     };
     _pusher = null;
     _userChannel = null;
-    _groupChannel = null; 
+    _groupChannel = null;
 
     _joinChannel = (suffix) => {
         if (this._pusher === null) {
             const pusherConfig = require('../../pusher.json');
-            this._pusher = new Pusher(pusherConfig.key, { ...pusherConfig });    
+            this._pusher = new Pusher(pusherConfig.key, { ...pusherConfig });
         }
 
         const channelName = `private-poker-${suffix}`;
@@ -60,6 +65,19 @@ class ProjectComponent extends React.Component {
             const ch = this._pusher.subscribe(channelName);
             ch.bind('pusher:subscription_succeeded', () => resolve(ch));
         });
+    };
+
+    _updateTimeRemaining = () => {
+        const { estimationTimeout, timeoutStartedAt } = this.state,
+            now = new Date().getTime(),
+            delta = now - timeoutStartedAt;
+        if (delta > 500) {
+            const timeLeft = Math.floor((estimationTimeout - delta) / 1000),
+                minutes = Math.floor(timeLeft / 60),
+                seconds = timeLeft - (minutes * 60);
+            this.setState({ timeLeftString: `${minutes < 10 ? '0' : ''}${minutes}:${seconds < 10 ? '0' : ''}${seconds}` });
+            setTimeout(() => _this._updateTimeRemaining(), 300);
+        }
     };
 
     _addChannelEvents = () => {
@@ -86,9 +104,9 @@ class ProjectComponent extends React.Component {
                     this.setState({ task: newTask });
                 }
             }
-            this.setState({ 
-                project: {...project}, 
-                projects: [...this.state.projects.map(p => p.id !== project.id ? p : {...project})], 
+            this.setState({
+                project: { ...project },
+                projects: [...this.state.projects.map(p => p.id !== project.id ? p : { ...project })],
                 isProjectLoading: false,
                 isTaskLoading: false
             });
@@ -97,6 +115,39 @@ class ProjectComponent extends React.Component {
             const { project } = data;
             this.setState({ project: null, projects: [...this.state.projects, project], isProjectLoading: false });
         });
+
+
+        this._groupChannel.bind('estimation-starting', (data) => {
+            const { taskId, timeout } = data;
+            const project = this.state.projects.find(p => p.tasks.findIndex(t => t.id === taskId) >= 0),
+                task = project ? project.tasks.find(t => t.id === taskId) : null;
+            if (task) {
+                const { username, groupID } = this.state;
+                this.setState({ estimationStatus: 'starting', estimationTimeout: +timeout, task: task, project: project, shouldEstimate: true });
+                this._groupChannel.trigger('client-acknowledge-estimation-starting', { organizationId: groupID, username, taskId })
+            }
+        });
+
+        this._groupChannel.bind('estimation-started', (data) => {
+            const { taskId } = data;
+            const project = this.state.projects.find(p => p.tasks.findIndex(t => t.id === taskId) >= 0),
+                task = project ? project.tasks.find(t => t.id === taskId) : null;
+            if (task) {
+                const now = new Date().getTime();
+                this.setState({ estimationStatus: 'started', task: task, project: project, shouldEstimate: true, timeoutStartedAt: now });
+                this._updateTimeRemaining();
+            }
+        });
+
+        this._groupChannel.bind('estimation-ended', (data) => {
+            const { task } = data;
+            const project = this.state.projects.find(p => p.tasks.findIndex(t => t.id === task.id) >= 0);
+            if (task && project) {
+                this.setState({ estimationStatus: 'ended', task: task, project: project, shouldEstimate: true, timeLeftString: '00:00' });
+            }
+        });
+
+
         this._userChannel.bind('error', (data) => {
             console.warn('poker-error', data);
         });
@@ -139,7 +190,7 @@ class ProjectComponent extends React.Component {
                 this._userChannel.unbind();
             }
             this._pusher.disconnect();
-            this._pusher = null;   
+            this._pusher = null;
         }
     }
 
@@ -148,16 +199,16 @@ class ProjectComponent extends React.Component {
             return;
         }
         const { username, groupID } = this.state;
-        this.setState({ 
-            isProjectLoading: true, 
-            creatingTask: false, 
-            newTaskName: '', 
-            creatingProject: false, 
+        this.setState({
+            isProjectLoading: true,
+            creatingTask: false,
+            newTaskName: '',
+            creatingProject: false,
             newProjectName: '',
             expandProjectsList: false,
-            expandTasksList: false 
+            expandTasksList: false
         });
-        this._groupChannel.trigger(event, {...data, username, organizationId: groupID });
+        this._groupChannel.trigger(event, { ...data, username, organizationId: groupID });
     }
 
     chooseProject(projectId) {
@@ -177,13 +228,13 @@ class ProjectComponent extends React.Component {
         if (!project) {
             return;
         }
-        this.setState({ task: (project.tasks || []).find(t => t.id === taskId )});
+        this.setState({ task: (project.tasks || []).find(t => t.id === taskId) });
     }
 
     render() {
         const { navigation, theme } = this.props,
             {
-                groupID, groupName, username ,
+                groupID, groupName, username,
                 project, task, projects, expandProjectsList, expandTasksList,
                 isLoading, isProjectLoading, isTaskLoading
             } = this.state;
@@ -201,101 +252,101 @@ class ProjectComponent extends React.Component {
                     <Appbar.Action icon="code" onPress={() => this.setState({ showCode: !this.state.showCode })} />
                 </Appbar.Header>
                 <MainView theme={theme}>
-            {isLoading 
-                ? <ActivityIndicator animating={true} size="large" color={theme.colors.accent} />
-                : <ScrollView>
-                        {this.state.showCode &&
-                            <View style={[{ backgroundColor: theme.colors.background, paddingTop: 20, paddingBottom: 20, flex: 1, flexDirection: 'column', justifyContent: 'center' }]}>
-                                <QRCode
-                                    value={groupID}
-                                    size={WIDTH}
-                                    bgColor={theme.colors.background}
-                                    fgColor={theme.colors.primary}/>
-                                <Text style={{ fontSize: 32, fontFamily: theme.fonts.medium, textAlign: 'center' }}>{groupID}</Text>
-                            </View>
-                        }
-                        {isProjectLoading 
-                            ? <ActivityIndicator animating={true} size="large" color={theme.colors.primary}/>
-                            :
-                            <List.Section>
-                            <List.Accordion
-                                title={project ? `Project: ${project.projectName}` : 'Choose project...'}
-                                expanded={projects.length === 0 || expandProjectsList}
-                                onPress={() => this.setState({ expandProjectsList: !expandProjectsList })}
-                                left={() => <List.Icon color={expandProjectsList ? theme.colors.primary : (project ? theme.colors.accent : theme.colors.text)} icon="assignment" />}
-                            >
-                                {projects.map((p) => (
-                                    <List.Item
-                                        key={p.id}
-                                        title={`${p.projectName} (${p.users.length} user${p.users.length !== 1 ? 's' : ''})`}
-                                        color={project && project.id === p.id ? theme.colors.accent : theme.colors.text}
-                                        left={() => <List.Icon
-                                            color={project && project.id === p.id ? theme.colors.primary : theme.colors.text}
-                                            icon={p.allTasksEstimated ? 'assignment-turned-in' : (p.users.includes(username) ? 'assignment-ind' : 'assignment')} />
-                                        }
-                                        onPress={() => this.chooseProject(p.id)}
-                                    />
-                                ))}
-
-                                <List.Item color={theme.colors.accent}
-                                    title="New project..."
-                                    onPress={() => this.setState({ creatingProject: true })}
-                                    left={() => <List.Icon color={theme.colors.accent} icon="add-circle" />}
-                                />
-                            </List.Accordion>
-                            {this.state.creatingProject &&
-                                <View style={CommonStyles.sidePadding}>
-                                    <TextInput 
-                                        label="Project name" 
-                                        value={this.state.newProjectName}
-                                        onChangeText={newProjectName => this.setState({ newProjectName })}
-                                        />
-                                        <Button
-                                            style={{ padding: 8 }}
-                                            icon={'add-circle'} mode="contained"
-                                            color={theme.colors.primary}
-                                            disabled={!this.state.newProjectName}
-                                            onPress={() => this.addProject(this.state.newProjectName)}>
-                                            Create...
-                                        </Button>
+                    {isLoading
+                        ? <ActivityIndicator animating={true} size="large" color={theme.colors.accent} />
+                        : <ScrollView>
+                            {this.state.showCode &&
+                                <View style={[{ backgroundColor: theme.colors.background, paddingTop: 20, paddingBottom: 20, flex: 1, flexDirection: 'column', justifyContent: 'center' }]}>
+                                    <QRCode
+                                        value={groupID}
+                                        size={WIDTH}
+                                        bgColor={theme.colors.background}
+                                        fgColor={theme.colors.primary} />
+                                    <Text style={{ fontSize: 32, fontFamily: theme.fonts.medium, textAlign: 'center' }}>{groupID}</Text>
                                 </View>
                             }
-                        </List.Section>
-                        }
-                        {project && !isProjectLoading &&
-                            <List.Section>
-                                <List.Accordion
-                                    title={task ? `Task: ${task.name}` : 'Choose task...'}
-                                    expanded={project.tasks.length === 0 || expandTasksList}
-                                    onPress={() => this.setState({ expandTasksList: !expandTasksList })}
-                                    left={() => <List.Icon color={expandTasksList ? theme.colors.primary : (project ? theme.colors.accent : theme.colors.text)} icon="event-note" />}
-                                >
-                                    {project.tasks.map((t) => (
-                                        <List.Item
-                                            key={t.id}
-                                            title={t.name}
-                                            left={() => <List.Icon
-                                                color={task && task.id === t.id ? theme.colors.primary : theme.colors.text}
-                                                icon={t.finalEstimate ? 'event-available' : 'event'} />
-                                            }
-                                            right={() => task && task.id === t.id && this.state.currentEstimate !== null ? <List.Icon icon="check" color={theme.colors.accent} /> : null}
-                                            color={task && task.id === t.id ? theme.colors.accent : theme.colors.text}
-                                            onPress={() => this.setState({ task: t, expandTasksList: false })}
-                                        />
-                                    ))}
+                            {isProjectLoading
+                                ? <ActivityIndicator animating={true} size="large" color={theme.colors.primary} />
+                                :
+                                <List.Section>
+                                    <List.Accordion
+                                        title={project ? `Project: ${project.projectName}` : 'Choose project...'}
+                                        expanded={projects.length === 0 || expandProjectsList}
+                                        onPress={() => this.setState({ expandProjectsList: !expandProjectsList })}
+                                        left={() => <List.Icon color={expandProjectsList ? theme.colors.primary : (project ? theme.colors.accent : theme.colors.text)} icon="assignment" />}
+                                    >
+                                        {projects.map((p) => (
+                                            <List.Item
+                                                key={p.id}
+                                                title={`${p.projectName} (${p.users.length} user${p.users.length !== 1 ? 's' : ''})`}
+                                                color={project && project.id === p.id ? theme.colors.accent : theme.colors.text}
+                                                left={() => <List.Icon
+                                                    color={project && project.id === p.id ? theme.colors.primary : theme.colors.text}
+                                                    icon={p.allTasksEstimated ? 'assignment-turned-in' : (p.users.includes(username) ? 'assignment-ind' : 'assignment')} />
+                                                }
+                                                onPress={() => this.chooseProject(p.id)}
+                                            />
+                                        ))}
 
-                                    <List.Item color={theme.colors.accent}
-                                        title="New task..."
-                                        onPress={() => this.setState({ creatingTask: true })}
-                                        left={() => <List.Icon color={theme.colors.accent} icon="add-circle" />}
-                                    />
-                                </List.Accordion>
-                                {this.state.creatingTask &&
-                                    <View style={CommonStyles.sidePadding}>
-                                        <TextInput 
-                                            label="Task name" 
-                                            value={this.state.newTaskName}
-                                            onChangeText={newTaskName => this.setState({ newTaskName })}
+                                        <List.Item color={theme.colors.accent}
+                                            title="New project..."
+                                            onPress={() => this.setState({ creatingProject: true })}
+                                            left={() => <List.Icon color={theme.colors.accent} icon="add-circle" />}
+                                        />
+                                    </List.Accordion>
+                                    {this.state.creatingProject &&
+                                        <View style={CommonStyles.sidePadding}>
+                                            <TextInput
+                                                label="Project name"
+                                                value={this.state.newProjectName}
+                                                onChangeText={newProjectName => this.setState({ newProjectName })}
+                                            />
+                                            <Button
+                                                style={{ padding: 8 }}
+                                                icon={'add-circle'} mode="contained"
+                                                color={theme.colors.primary}
+                                                disabled={!this.state.newProjectName}
+                                                onPress={() => this.addProject(this.state.newProjectName)}>
+                                                Create...
+                                        </Button>
+                                        </View>
+                                    }
+                                </List.Section>
+                            }
+                            {project && !isProjectLoading &&
+                                <List.Section>
+                                    <List.Accordion
+                                        title={task ? `Task: ${task.name}` : 'Choose task...'}
+                                        expanded={project.tasks.length === 0 || expandTasksList}
+                                        onPress={() => this.setState({ expandTasksList: !expandTasksList })}
+                                        left={() => <List.Icon color={expandTasksList ? theme.colors.primary : (project ? theme.colors.accent : theme.colors.text)} icon="event-note" />}
+                                    >
+                                        {project.tasks.map((t) => (
+                                            <List.Item
+                                                key={t.id}
+                                                title={t.name}
+                                                left={() => <List.Icon
+                                                    color={task && task.id === t.id ? theme.colors.primary : theme.colors.text}
+                                                    icon={t.finalEstimate ? 'event-available' : 'event'} />
+                                                }
+                                                right={() => task && task.id === t.id && this.state.currentEstimate !== null ? <List.Icon icon="check" color={theme.colors.accent} /> : null}
+                                                color={task && task.id === t.id ? theme.colors.accent : theme.colors.text}
+                                                onPress={() => this.setState({ task: t, expandTasksList: false })}
+                                            />
+                                        ))}
+
+                                        <List.Item color={theme.colors.accent}
+                                            title="New task..."
+                                            onPress={() => this.setState({ creatingTask: true })}
+                                            left={() => <List.Icon color={theme.colors.accent} icon="add-circle" />}
+                                        />
+                                    </List.Accordion>
+                                    {this.state.creatingTask &&
+                                        <View style={CommonStyles.sidePadding}>
+                                            <TextInput
+                                                label="Task name"
+                                                value={this.state.newTaskName}
+                                                onChangeText={newTaskName => this.setState({ newTaskName })}
                                             />
                                             <Button
                                                 style={{ padding: 8 }}
@@ -305,57 +356,98 @@ class ProjectComponent extends React.Component {
                                                 onPress={() => this.addTask(this.state.newTaskName)}>
                                                 Create...
                                             </Button>
-                                    </View>
-                                }
-                            </List.Section>
-                        }
-                        <Divider />
-                        {project && task &&
-                            <View style={CommonStyles.sidePadding}>
-                                <Title>
-                                    Task: {task.name}
-                                </Title>
-                                <Subheading>
-                                    Actions
-                                </Subheading>
-                                {this.state.shouldEstimate ?
-                                    <Surface>
-                                        <View style={[CommonStyles.sidePadding, { flexDirection: 'row', flexWrap: 'wrap' }]}>
-                                            {project.validEstimates.map((v, i) =>
-                                                <Button
-                                                    style={styles.estimateButton}
-                                                    color={v === this.state.currentEstimate ? theme.colors.primary : theme.colors.text}
-                                                    mode="contained"
-                                                    key={'estimate-' + i} value={v}
-                                                    onPress={() => this.setState({ currentEstimate: v })}>
-                                                    <Text style={{ fontSize: 18, fontFamily: theme.fonts.medium, color: theme.colors.background }}>
-                                                        {v < 0 ? '?' : v}
-                                                    </Text>
+                                        </View>
+                                    }
+                                </List.Section>
+                            }
+                            <Divider />
+                            {project && task &&
+                                <View style={CommonStyles.sidePadding}>
+                                    <Title>
+                                        Task: {task.name}
+                                    </Title>
+                                    <Subheading>
+                                        Estimate
+                                    </Subheading>
+                                    {this.state.shouldEstimate ?
+                                        <Surface>
+                                            {this.state.estimationStatus === 'starting' &&
+                                                <View>
+                                                    <Paragraph>Estimation of this task started. Waiting for enough users to join...</Paragraph>
+                                                </View>
+                                            }
+                                            {this.state.estimationStatus === 'started' &&
+                                                <View>
+                                                    <FAB icon="timer" label={this.state.timeLeftString} color={theme.colors.accent}/>
+                                                    <Spacer height={2}/>
+                                                    <View style={[CommonStyles.sidePadding, { flexDirection: 'row', flexWrap: 'wrap' }]}>
+                                                        {project.validEstimates.map((v, i) =>
+                                                            <Button
+                                                                style={styles.estimateButton}
+                                                                color={v === this.state.currentEstimate ? theme.colors.primary : theme.colors.text}
+                                                                mode="contained"
+                                                                key={'estimate-' + i} value={v}
+                                                                onPress={() => this.setState({ currentEstimate: v })}>
+                                                                <Text style={{ fontSize: 18, fontFamily: theme.fonts.medium, color: theme.colors.background }}>
+                                                                    {v < 0 ? '?' : v}
+                                                                </Text>
+                                                            </Button>
+                                                        )}
+                                                    </View>
+                                                    <Spacer height={2} />
+                                                    <Button disabled={this.state.currentEstimate === null} mode="contained" icon="gavel" color={theme.colors.primary}>
+                                                        Send estimate
+                                                    </Button>
+                                                </View>
+                                            }
+                                            {this.state.estimationStatus === 'ended' &&
+                                                <View>
+                                                    <Title>
+                                                        Estimation of {task.name} has ended.
+                                                    </Title>
+                                                    <Subheading>
+                                                        {task.stats.estimates.count} estimates recieved. ({task.stats.completion * 100}% of users).
+                                                    </Subheading>
+                                                    <Paragraph>
+                                                        Mean estimate {task.stats.estimates.mean} (std. dev {task.stats.estimates.stdev})
+                                                    </Paragraph>
+                                                    <Paragraph>
+                                                        Maximum: {task.stats.estimates.max} ({task.stats.users.max.join(', ')})
+                                                    </Paragraph>
+                                                    <Paragraph>
+                                                        Minimum: {task.stats.estimates.min} ({task.stats.users.min.join(', ')})
+                                                    </Paragraph>
+                                                    <Paragraph>
+                                                        Median: {task.stats.estimates.median} ({task.stats.users.median.join(', ')})
+                                                    </Paragraph>
+                                                    <Paragraph>
+                                                        Mode: {task.stats.estimates.mode} ({task.stats.users.mode.join(', ')})
+                                                    </Paragraph>
+                                                    <View style={[CommonStyles.sidePadding, CommonStyles.vertPadding]}>
+                                                        <Button mode="contained" icon="gavel" color={theme.colors.accent}>
+                                                            Restart estimation
+                                                        </Button>
+                                                    </View>
+                                                </View> 
+                                            }
+                                        </Surface>
+                                        :
+                                        <Surface>
+                                            <View style={[CommonStyles.sidePadding, CommonStyles.vertPadding]}>
+                                                <Button mode="contained" icon="gavel" color={theme.colors.accent}>
+                                                    Start estimation
                                                 </Button>
-                                            )}
-                                        </View>
-                                        <Spacer height={2} />
-                                        <Button disabled={this.state.currentEstimate === null} mode="contained" icon="gavel" color={theme.colors.primary}>
-                                            Send estimate
-                                        </Button>
-                                        <Spacer height={2} />
-                                    </Surface>
-                                    :
-                                    <Surface>
-                                        <View style={[CommonStyles.sidePadding, CommonStyles.vertPadding]}>
-                                            <Button mode="contained" icon="gavel" color={theme.colors.accent}>
-                                                Start estimation
-                                            </Button>
-                                            <HelperText type="info">
-                                                Sends an alert to all active users, giving you two minutes to complete this round of estimation. 
-                                            </HelperText>
-                                        </View>
-                                    </Surface>
-                                }
-                            </View>
-                        }
-                    </ScrollView>
-            }
+                                                <HelperText type="info">
+                                                    Sends an alert to all active users, giving you two minutes to complete this round of estimation.
+                                                </HelperText>
+                                            </View>
+                                        </Surface>
+                                    }
+                                </View>
+                            }
+                            <Spacer height={2} />
+                        </ScrollView>
+                    }
                 </MainView>
             </Portal>
         )
