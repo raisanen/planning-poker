@@ -121,6 +121,7 @@ class ProjectComponent extends React.Component {
                     const { organization } = data;
                     this.setState({ group: organization });
                     this._addGroupChannel(organization.id);
+                    this._userChannel.unbind('organization-added');
                 });
                 this._userChannel.trigger('client-create-organization', { organizationName: groupName, username });
             } else {
