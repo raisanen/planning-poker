@@ -75,7 +75,7 @@ export class HomeComponent extends React.Component {
                         <TextInput
                             label='Your name'
                             value={this.state.username}
-                            onChangeText={username => this.setState({ username })}
+                            onChangeText={username => this.setState({ username: (username).toLowerCase()  })}
                         />
                         <Spacer/>
                         {this.state.creatingGroup 

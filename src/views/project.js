@@ -1,11 +1,28 @@
 import React from 'react';
-
-import { Appbar, Button, FAB, Portal, Divider, Surface, ActivityIndicator, withTheme, List, Title, Subheading, HelperText, Text, TextInput, Paragraph } from 'react-native-paper';
 import { Dimensions, StyleSheet, View } from 'react-native';
+import { 
+    ActivityIndicator,
+    Appbar,
+    Button,
+    Divider,
+    FAB,
+    HelperText,
+    List,
+    Paragraph,
+    Portal,
+    Title,
+    Subheading,
+    Surface,
+    Text,
+    TextInput,
+    withTheme,
+} from 'react-native-paper';
+import { BarChart, xAxis } from 'react-native-svg-charts';
+import { ScrollView } from 'react-native-gesture-handler';
 import QRCode from 'react-qr-code';
 
 import { MainView, CommonStyles, Spacer } from './common';
-import { ScrollView } from 'react-native-gesture-handler';
+
 
 import Pusher from 'pusher-js/react-native';
 
@@ -38,7 +55,7 @@ class ProjectComponent extends React.Component {
 
         shouldEstimate: false,
 
-        estimationStats: null,
+        barChart: null,
 
         isLoading: true,
         isProjectLoading: false,
@@ -77,6 +94,29 @@ class ProjectComponent extends React.Component {
                 seconds = timeLeft - (minutes * 60);
             this.setState({ timeLeftString: `${minutes < 10 ? '0' : ''}${minutes}:${seconds < 10 ? '0' : ''}${seconds}` });
             setTimeout(() => _this._updateTimeRemaining(), 300);
+        }
+    };
+
+    _updateStats = () => {
+        const { task, estimationStatus } = this.state;
+        if (task && (estimationStatus === 'ended' || estimationStatus === 'final')) {
+            const { estimates } = task.stats,
+                { colors } = this.props.theme;
+
+            this.setState({
+                barChart: Object.keys(estimates.occurOfAll).map(k => {
+                    const val = estimates.occurOfAll[k],
+                        n = parseInt(k);
+
+                    return {
+                        value: val,
+                        svg: {
+                            fill: estimates.median === n ? colors.accent : 
+                                (estimates.mode === n ? colors.primary : colors.text)
+                        }
+                    };
+                })
+            });
         }
     };
 
@@ -140,10 +180,18 @@ class ProjectComponent extends React.Component {
         });
 
         this._groupChannel.bind('estimation-ended', (data) => {
-            const { task } = data;
-            const project = this.state.projects.find(p => p.tasks.findIndex(t => t.id === task.id) >= 0);
+            const { task } = data,
+                project = this.state.projects.find(p => p.tasks.findIndex(t => t.id === task.id) >= 0);
+
             if (task && project) {
-                this.setState({ estimationStatus: 'ended', task: task, project: project, shouldEstimate: true, timeLeftString: '00:00' });
+                this.setState({
+                    estimationStatus: 'ended',
+                    task: task,
+                    project: project,
+                    shouldEstimate: true,
+                    timeLeftString: '00:00',    
+                });
+                this._updateStats();
             }
         });
 
@@ -228,15 +276,29 @@ class ProjectComponent extends React.Component {
         if (!project) {
             return;
         }
-        this.setState({ task: (project.tasks || []).find(t => t.id === taskId) });
+        const task = (project.tasks || []).find(t => t.id === taskId);
+        this.setState({ task, expandTasksList: false });
+        if (task.finalEstimate) {
+            this.setState({
+                shouldEstimate: true,
+                estimationStatus: 'final'
+            });
+            this._updateStats();
+        }
     }
 
     render() {
         const { navigation, theme } = this.props,
             {
                 groupID, groupName, username,
-                project, task, projects, expandProjectsList, expandTasksList,
-                isLoading, isProjectLoading, isTaskLoading
+                project, task, projects,
+                expandProjectsList, expandTasksList,
+                showCode,
+                creatingProject, creatingTask,
+                isLoading, isProjectLoading, 
+                shouldEstimate, estimationStatus,
+                currentEstimate,
+                timeLeftString
             } = this.state;
 
         return (
@@ -249,7 +311,7 @@ class ProjectComponent extends React.Component {
                         title={`Planning poker - ${groupName || 'Loading...'}`}
                         subtitle={project ? `Project: ${project.projectName}` + (task ? `(${task.name})` : '') : 'Projects and tasks'}
                     />
-                    <Appbar.Action icon="code" onPress={() => this.setState({ showCode: !this.state.showCode })} />
+                    <Appbar.Action icon="code" onPress={() => this.setState({ showCode: !showCode })} />
                 </Appbar.Header>
                 <MainView theme={theme}>
                     {isLoading
@@ -282,8 +344,9 @@ class ProjectComponent extends React.Component {
                                                 color={project && project.id === p.id ? theme.colors.accent : theme.colors.text}
                                                 left={() => <List.Icon
                                                     color={project && project.id === p.id ? theme.colors.primary : theme.colors.text}
-                                                    icon={p.allTasksEstimated ? 'assignment-turned-in' : (p.users.includes(username) ? 'assignment-ind' : 'assignment')} />
+                                                    icon={(p.users.includes(username) ? 'assignment-ind' : 'assignment')} />
                                                 }
+                                                right={() => t.allTasksFinalized ? <List.Icon icon="done-all" color={theme.colors.accent} /> : null}
                                                 onPress={() => this.chooseProject(p.id)}
                                             />
                                         ))}
@@ -294,7 +357,7 @@ class ProjectComponent extends React.Component {
                                             left={() => <List.Icon color={theme.colors.accent} icon="add-circle" />}
                                         />
                                     </List.Accordion>
-                                    {this.state.creatingProject &&
+                                    {creatingProject &&
                                         <View style={CommonStyles.sidePadding}>
                                             <TextInput
                                                 label="Project name"
@@ -327,11 +390,11 @@ class ProjectComponent extends React.Component {
                                                 title={t.name}
                                                 left={() => <List.Icon
                                                     color={task && task.id === t.id ? theme.colors.primary : theme.colors.text}
-                                                    icon={t.finalEstimate ? 'event-available' : 'event'} />
+                                                    icon="event" />
                                                 }
-                                                right={() => task && task.id === t.id && this.state.currentEstimate !== null ? <List.Icon icon="check" color={theme.colors.accent} /> : null}
+                                                right={() => t.finalEstimate ? <List.Icon icon="done" color={theme.colors.accent} /> : null}
                                                 color={task && task.id === t.id ? theme.colors.accent : theme.colors.text}
-                                                onPress={() => this.setState({ task: t, expandTasksList: false })}
+                                                onPress={() => this.chooseTask(t.id)}
                                             />
                                         ))}
 
@@ -341,7 +404,7 @@ class ProjectComponent extends React.Component {
                                             left={() => <List.Icon color={theme.colors.accent} icon="add-circle" />}
                                         />
                                     </List.Accordion>
-                                    {this.state.creatingTask &&
+                                    {creatingTask &&
                                         <View style={CommonStyles.sidePadding}>
                                             <TextInput
                                                 label="Task name"
@@ -369,22 +432,22 @@ class ProjectComponent extends React.Component {
                                     <Subheading>
                                         Estimate
                                     </Subheading>
-                                    {this.state.shouldEstimate ?
+                                    {shouldEstimate ?
                                         <Surface>
-                                            {this.state.estimationStatus === 'starting' &&
+                                            {estimationStatus === 'starting' &&
                                                 <View>
                                                     <Paragraph>Estimation of this task started. Waiting for enough users to join...</Paragraph>
                                                 </View>
                                             }
-                                            {this.state.estimationStatus === 'started' &&
+                                            {estimationStatus === 'started' &&
                                                 <View>
-                                                    <FAB icon="timer" label={this.state.timeLeftString} color={theme.colors.accent}/>
+                                                    <FAB icon="av-timer" label={timeLeftString} color={theme.colors.accent}/>
                                                     <Spacer height={2}/>
                                                     <View style={[CommonStyles.sidePadding, { flexDirection: 'row', flexWrap: 'wrap' }]}>
                                                         {project.validEstimates.map((v, i) =>
                                                             <Button
                                                                 style={styles.estimateButton}
-                                                                color={v === this.state.currentEstimate ? theme.colors.primary : theme.colors.text}
+                                                                color={v === currentEstimate ? theme.colors.primary : theme.colors.text}
                                                                 mode="contained"
                                                                 key={'estimate-' + i} value={v}
                                                                 onPress={() => this.setState({ currentEstimate: v })}>
@@ -395,12 +458,12 @@ class ProjectComponent extends React.Component {
                                                         )}
                                                     </View>
                                                     <Spacer height={2} />
-                                                    <Button disabled={this.state.currentEstimate === null} mode="contained" icon="gavel" color={theme.colors.primary}>
+                                                    <Button disabled={currentEstimate === null} mode="contained" icon="gavel" color={theme.colors.primary}>
                                                         Send estimate
                                                     </Button>
                                                 </View>
                                             }
-                                            {this.state.estimationStatus === 'ended' &&
+                                            {estimationStatus === 'ended' || estimationStatus === 'final' &&
                                                 <View>
                                                     <Title>
                                                         Estimation of {task.name} has ended.
@@ -408,6 +471,11 @@ class ProjectComponent extends React.Component {
                                                     <Subheading>
                                                         {task.stats.estimates.count} estimates recieved. ({task.stats.completion * 100}% of users).
                                                     </Subheading>
+                                                    <Surface>
+                                                        <BarChart>
+                                                            <xAxis/>
+                                                        </BarChart>
+                                                    </Surface>
                                                     <Paragraph>
                                                         Mean estimate {task.stats.estimates.mean} (std. dev {task.stats.estimates.stdev})
                                                     </Paragraph>
@@ -423,11 +491,16 @@ class ProjectComponent extends React.Component {
                                                     <Paragraph>
                                                         Mode: {task.stats.estimates.mode} ({task.stats.users.mode.join(', ')})
                                                     </Paragraph>
-                                                    <View style={[CommonStyles.sidePadding, CommonStyles.vertPadding]}>
-                                                        <Button mode="contained" icon="gavel" color={theme.colors.accent}>
-                                                            Restart estimation
-                                                        </Button>
-                                                    </View>
+                                                    {estimationStatus !== 'final' &&
+                                                        <View style={[CommonStyles.sidePadding, CommonStyles.vertPadding]}>
+                                                            <Button mode="contained" icon="refresh" color={theme.colors.primary}>
+                                                                Restart
+                                                            </Button>
+                                                            <Button mode="contained" icon="done" color={theme.colors.accent}>
+                                                                Finalize
+                                                            </Button>
+                                                        </View>
+                                                    }
                                                 </View> 
                                             }
                                         </Surface>
