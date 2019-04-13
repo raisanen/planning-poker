@@ -16,6 +16,7 @@ import {
     Text,
     TextInput,
     withTheme,
+    Chip,
 } from 'react-native-paper';
 import { BarChart, XAxis } from 'react-native-svg-charts';
 import { ScrollView, FlatList } from 'react-native-gesture-handler';
@@ -29,7 +30,31 @@ import Pusher from 'pusher-js/react-native';
 Pusher.logConsole = true;
 
 const { width: WIDTH, height: HEIGHT } = Dimensions.get("window");
+const defaultState = {
+    expandProjectsList: false,
+    expandTasksList: false,
 
+    currentEstimate: null,
+    estimateSent: false,
+
+    estimationStatus: null,
+    estimationTimeout: null,
+    timeLeftString: '',
+    timeoutStartedAt: 0,
+
+    showCode: false,
+
+    shouldEstimate: false,
+
+    barChart: null,
+    isProjectLoading: false,
+    isTaskLoading: false,
+
+    creatingProject: false,
+    creatingTask: false,
+    newProjectName: '',
+    newTaskName: '',
+};
 class ProjectComponent extends React.Component {
     state = {
         groupID: null,
@@ -45,6 +70,7 @@ class ProjectComponent extends React.Component {
         expandTasksList: false,
 
         currentEstimate: null,
+        estimateSent: false,
 
         estimationStatus: null,
         estimationTimeout: null,
@@ -85,30 +111,30 @@ class ProjectComponent extends React.Component {
     };
 
     _updateTimeRemaining = () => {
-        const { estimationTimeout, timeoutStartedAt } = this.state,
+        const { estimationTimeout, timeoutStartedAt, estimationStatus } = this.state,
+            timeout = (estimationTimeout || 2) * 60000,
             now = new Date().getTime(),
-            delta = now - timeoutStartedAt;
-        if (delta > 500) {
-            const timeLeft = Math.floor((estimationTimeout - delta) / 1000),
-                minutes = Math.floor(timeLeft / 60),
-                seconds = timeLeft - (minutes * 60);
-            if (timeLeft > 0) {
-                this.setState({ timeLeftString: `${minutes < 10 ? '0' : ''}${minutes}:${seconds < 10 ? '0' : ''}${seconds}` });
-                setTimeout(() => _this._updateTimeRemaining(), 300);
-            } else {
-                this.setState({ timeLeftString: '00:00' });
-            }
+            delta = now - timeoutStartedAt,
+            timeLeft = Math.floor((timeout - delta) / 1000),
+            minutes = Math.floor(timeLeft / 60),
+            seconds = timeLeft - (minutes * 60);
+
+        console.log(estimationTimeout, timeoutStartedAt, timeLeft);
+
+        if (timeLeft > 0 && estimationStatus === 'started') {
+            this.setState({ timeLeftString: `${minutes < 10 ? '0' : ''}${minutes}:${seconds < 10 ? '0' : ''}${seconds}` });
+            setTimeout(() => this._updateTimeRemaining(), 300);
+        } else {
+            this.setState({ timeLeftString: '00:00' });
         }
-    };
+};
 
     _updateStats = () => {
         const { task, estimationStatus, username } = this.state;
-        console.log(estimationStatus);
         if (task && (estimationStatus === 'ended' || estimationStatus === 'final')) {
             const { estimates } = task.stats,
                 { colors } = this.props.theme,
                 userEstimate = task.estimates.find(e => e.user === username);
-            console.log(task);
             this.setState({
                 currentEstimate: userEstimate ? userEstimate.estimate : null,
                 shouldEstimate: true,
@@ -166,9 +192,15 @@ class ProjectComponent extends React.Component {
         });
         this._groupChannel.bind('project-added', (data) => {
             const { project } = data;
-            this.setState({ project: null, projects: [...this.state.projects, project], isProjectLoading: false });
+            this.setState({ 
+                project: project,
+                task: null, 
+                projects: [...this.state.projects, project], 
+                isProjectLoading: false,
+                shouldEstimate: false,
+                estimationStatus: null
+            });
         });
-
 
         this._groupChannel.bind('estimation-starting', (data) => {
             const { taskId, timeout } = data;
@@ -176,32 +208,38 @@ class ProjectComponent extends React.Component {
                 task = project ? project.tasks.find(t => t.id === taskId) : null;
             if (task) {
                 const { username, groupID } = this.state;
-                this.setState({ estimationStatus: 'starting', estimationTimeout: +timeout, task: task, project: project, shouldEstimate: true });
+                this.setState({ estimationStatus: 'starting', isLoading: false, estimationTimeout: +timeout, task: task, project: project, shouldEstimate: true });
                 this._groupChannel.trigger('client-acknowledge-estimation-starting', { organizationId: groupID, username, taskId })
             }
         });
 
         this._groupChannel.bind('estimation-started', (data) => {
-            const { taskId } = data;
-            const project = this.state.projects.find(p => p.tasks.findIndex(t => t.id === taskId) >= 0),
-                task = project ? project.tasks.find(t => t.id === taskId) : null;
+            const { project, taskId } = data,
+                task = project.tasks.find(t => t.id === taskId);
             if (task) {
                 const now = new Date().getTime();
-                this.setState({ estimationStatus: 'started', task: task, project: project, shouldEstimate: true, timeoutStartedAt: now });
-                this._updateTimeRemaining();
+                this.setState({
+                    estimationStatus: 'started',
+                    task: task,
+                    project: project,
+                    shouldEstimate: true,
+                    timeoutStartedAt: now,
+                    isLoading: false
+                });
             }
         });
 
         this._groupChannel.bind('estimation-ended', (data) => {
-            const { task } = data,
-                project = this.state.projects.find(p => p.tasks.findIndex(t => t.id === task.id) >= 0);
+            const { project, taskId } = data,
+                task = project.tasks.find(t => t.id === taskId);
 
             if (task && project) {
                 this.setState({
                     estimationStatus: 'ended',
                     task: task,
                     project: project,
-                    timeLeftString: '00:00',    
+                    timeLeftString: '00:00',
+                    isLoading: false
                 });
             }
         });
@@ -224,6 +262,8 @@ class ProjectComponent extends React.Component {
         if (prevState.estimationStatus !== this.state.estimationStatus) {
             if (this.state.estimationStatus === 'final' || this.state.estimationStatus === 'ended') {
                 this._updateStats();
+            } else if (this.state.estimationStatus === 'started') {
+                this._updateTimeRemaining();
             }
         }
     }
@@ -276,6 +316,21 @@ class ProjectComponent extends React.Component {
             expandTasksList: false
         });
         this._groupChannel.trigger(event, { ...data, username, organizationId: groupID });
+    }
+
+    startEstimation() {
+        this._projectTrigger('client-start-estimation', { taskId: this.state.task.id, timeout: 0.5 });
+    }
+
+    finalizeEstimate() {
+        this._projectTrigger('client-finalize-estimate', { taskId: this.state.task.id, estimate: this.state.currentEstimate });
+    }
+
+    estimateTask() {
+        this._projectTrigger('client-estimate-task', { taskId: this.state.task.id, estimate: this.state.currentEstimate });
+        this.setState({
+            estimateSent: true
+        });
     }
 
     chooseProject(projectId) {
@@ -351,7 +406,7 @@ class ProjectComponent extends React.Component {
                                 </View>
                             }
                             {isProjectLoading
-                                ? <ActivityIndicator animating={true} size="large" color={theme.colors.primary} />
+                                ? <ActivityIndicator style={{marginTop: 64}} animating={true} size="large" color={theme.colors.primary} />
                                 :
                                 <List.Section>
                                     <List.Accordion
@@ -466,9 +521,13 @@ class ProjectComponent extends React.Component {
                                             }
                                             {estimationStatus === 'started' &&
                                                 <View>
-                                                    <FAB icon="av-timer" label={timeLeftString} color={theme.colors.accent}/>
+                                                    <Chip icon="timer">{timeLeftString}</Chip>
                                                     <Spacer height={2}/>
-                                                    <View style={[CommonStyles.sidePadding, { flexDirection: 'row', flexWrap: 'wrap' }]}>
+                                                    {this.state.estimateSent
+                                                    ? <View style={CommonStyles.sidePadding}>
+                                                        <Text>Estimate sent. Waiting for estimation round to end...</Text>
+                                                    </View>
+                                                    : <View style={[CommonStyles.sidePadding, { flexDirection: 'row', flexWrap: 'wrap' }]}>
                                                         {project.validEstimates.map((v, i) =>
                                                             <Button
                                                                 style={styles.estimateButton}
@@ -482,8 +541,14 @@ class ProjectComponent extends React.Component {
                                                             </Button>
                                                         )}
                                                     </View>
+
+                                                    }
                                                     <Spacer height={2} />
-                                                    <Button disabled={currentEstimate === null} mode="contained" icon="gavel" color={theme.colors.primary}>
+                                                    <Button disabled={currentEstimate === null || this.state.estimateSent} 
+                                                        mode="contained" icon="gavel" 
+                                                        color={theme.colors.primary}
+                                                        onPress={() => this.estimateTask()}
+                                                    >
                                                         Send estimate
                                                     </Button>
                                                 </View>
@@ -532,10 +597,14 @@ class ProjectComponent extends React.Component {
                                                     />
                                                     {estimationStatus !== 'final' &&
                                                         <View style={[CommonStyles.sidePadding, CommonStyles.vertPadding]}>
-                                                            <Button mode="contained" icon="refresh" color={theme.colors.primary}>
+                                                            <Button
+                                                                onPress={() => this.startEstimation()} 
+                                                                mode="contained" icon="refresh" color={theme.colors.primary}>
                                                                 Restart
                                                             </Button>
-                                                            <Button mode="contained" icon="done" color={theme.colors.accent}>
+                                                            <Button
+                                                                onPress={() => this.finalizeEstimate()} 
+                                                                mode="contained" icon="done" color={theme.colors.accent}>
                                                                 Finalize
                                                             </Button>
                                                         </View>
@@ -546,11 +615,13 @@ class ProjectComponent extends React.Component {
                                         :
                                         <Surface>
                                             <View style={[CommonStyles.sidePadding, CommonStyles.vertPadding]}>
-                                                <Button mode="contained" icon="gavel" color={theme.colors.accent}>
+                                                <Button 
+                                                    onPress={() => this.startEstimation()} 
+                                                    mode="contained" icon="gavel" color={theme.colors.accent}>
                                                     Start estimation
                                                 </Button>
                                                 <HelperText type="info">
-                                                    Sends an alert to all active users, giving you two minutes to complete this round of estimation.
+                                                    Sends an alert to all active users, giving you 30 seconds to complete this round of estimation.
                                                 </HelperText>
                                             </View>
                                         </Surface>
