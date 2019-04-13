@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { Appbar, TextInput, Button, ToggleButton, withTheme, Portal } from 'react-native-paper';
+import { Appbar, Button, Checkbox,  Portal, Text, TextInput, withTheme } from 'react-native-paper';
 import { View } from 'react-native';
 
 import { SecureStore } from 'expo';
@@ -14,7 +14,8 @@ export class HomeComponent extends React.Component {
         username: '',
         groupName: '',
         isLoading: true,
-        creatingGroup: false
+        creatingGroup: false,
+        saveData: true,
     };
 
     async componentDidMount() {
@@ -26,12 +27,12 @@ export class HomeComponent extends React.Component {
 
     createOrOpenGroup = async () => {
         const { navigation } = this.props,
-            { groupID, groupName, username, creatingGroup } = this.state;
+            { groupID, groupName, username, creatingGroup, saveData } = this.state;
 
         if (!creatingGroup) {
-            await SecureStore.setItemAsync('groupID', groupID);
+            await SecureStore.setItemAsync('groupID', saveData ? groupID : '');
         }
-        await SecureStore.setItemAsync('username', username);
+        await SecureStore.setItemAsync('username', saveData ? username : '');
         
         navigation.push('Project', { 
             groupID: creatingGroup ? null : groupID,
@@ -100,6 +101,18 @@ export class HomeComponent extends React.Component {
                             onPress={this.createOrOpenGroup}>
                             {isCreating ? 'Create' : 'Connect'}
                         </Button>
+
+                        {!this.state.creatingGroup &&
+                            <View style={{marginTop: 64}}>
+                                <Button 
+                                    mode="outline"
+                                    icon={this.state.saveData ? 'check-box' : 'check-box-outline-blank'}
+                                    color={colors.text}
+                                    onPress={() => this.setState({ saveData: !this.state.saveData })}>
+                                    Remember username and group.
+                                </Button>
+                            </View>
+                        }
 
                         <Spacer height={5} />
                     </View>

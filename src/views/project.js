@@ -17,8 +17,8 @@ import {
     TextInput,
     withTheme,
 } from 'react-native-paper';
-import { BarChart, xAxis } from 'react-native-svg-charts';
-import { ScrollView } from 'react-native-gesture-handler';
+import { BarChart, XAxis } from 'react-native-svg-charts';
+import { ScrollView, FlatList } from 'react-native-gesture-handler';
 import QRCode from 'react-qr-code';
 
 import { MainView, CommonStyles, Spacer } from './common';
@@ -92,31 +92,41 @@ class ProjectComponent extends React.Component {
             const timeLeft = Math.floor((estimationTimeout - delta) / 1000),
                 minutes = Math.floor(timeLeft / 60),
                 seconds = timeLeft - (minutes * 60);
-            this.setState({ timeLeftString: `${minutes < 10 ? '0' : ''}${minutes}:${seconds < 10 ? '0' : ''}${seconds}` });
-            setTimeout(() => _this._updateTimeRemaining(), 300);
+            if (timeLeft > 0) {
+                this.setState({ timeLeftString: `${minutes < 10 ? '0' : ''}${minutes}:${seconds < 10 ? '0' : ''}${seconds}` });
+                setTimeout(() => _this._updateTimeRemaining(), 300);
+            } else {
+                this.setState({ timeLeftString: '00:00' });
+            }
         }
     };
 
     _updateStats = () => {
-        const { task, estimationStatus } = this.state;
+        const { task, estimationStatus, username } = this.state;
+        console.log(estimationStatus);
         if (task && (estimationStatus === 'ended' || estimationStatus === 'final')) {
             const { estimates } = task.stats,
-                { colors } = this.props.theme;
-
+                { colors } = this.props.theme,
+                userEstimate = task.estimates.find(e => e.user === username);
+            console.log(task);
             this.setState({
+                currentEstimate: userEstimate ? userEstimate.estimate : null,
+                shouldEstimate: true,
                 barChart: Object.keys(estimates.occurOfAll).map(k => {
                     const val = estimates.occurOfAll[k],
-                        n = parseInt(k);
+                        n = +k;
 
                     return {
                         value: val,
+                        label: n >= 0 ? n : '?',
                         svg: {
-                            fill: estimates.median === n ? colors.accent : 
+                            fill: task.finalEstimate === n ? colors.accent : 
                                 (estimates.mode === n ? colors.primary : colors.text)
                         }
                     };
                 })
             });
+            console.log(this.state.barChart);
         }
     };
 
@@ -142,6 +152,9 @@ class ProjectComponent extends React.Component {
                 if (this.state.project.tasks.length < project.tasks.length) {
                     const newTask = project.tasks.find(t => this.state.project.tasks.findIndex(pt => pt.id === t.id) < 0);
                     this.setState({ task: newTask });
+                    if (newTask.finalEstimate) {
+                        this._updateStats();
+                    }
                 }
             }
             this.setState({
@@ -188,10 +201,8 @@ class ProjectComponent extends React.Component {
                     estimationStatus: 'ended',
                     task: task,
                     project: project,
-                    shouldEstimate: true,
                     timeLeftString: '00:00',    
                 });
-                this._updateStats();
             }
         });
 
@@ -208,6 +219,14 @@ class ProjectComponent extends React.Component {
             this._groupChannel.trigger('client-join-organization', { organizationId: id, username: this.state.username });
         });
     };
+
+    componentDidUpdate(prevProps, prevState) {
+        if (prevState.estimationStatus !== this.state.estimationStatus) {
+            if (this.state.estimationStatus === 'final' || this.state.estimationStatus === 'ended') {
+                this._updateStats();
+            }
+        }
+    }
 
     componentDidMount() {
         const { groupID, groupName, username } = this.props.navigation.state.params;
@@ -260,7 +279,12 @@ class ProjectComponent extends React.Component {
     }
 
     chooseProject(projectId) {
-        this._projectTrigger('client-join-project', { projectId });
+        const project = this.state.projects.find(p => p.id === projectId);
+        if (!project.users.includes(this.state.username)) {
+            this._projectTrigger('client-join-project', { projectId });
+        } else {
+            this.setState({ project, expandProjectsList: false });
+        }
     }
 
     addProject(projectName) {
@@ -278,12 +302,10 @@ class ProjectComponent extends React.Component {
         }
         const task = (project.tasks || []).find(t => t.id === taskId);
         this.setState({ task, expandTasksList: false });
-        if (task.finalEstimate) {
+        if (task.finalEstimate !== null) {
             this.setState({
-                shouldEstimate: true,
                 estimationStatus: 'final'
             });
-            this._updateStats();
         }
     }
 
@@ -297,6 +319,7 @@ class ProjectComponent extends React.Component {
                 creatingProject, creatingTask,
                 isLoading, isProjectLoading, 
                 shouldEstimate, estimationStatus,
+                barChart,
                 currentEstimate,
                 timeLeftString
             } = this.state;
@@ -335,6 +358,7 @@ class ProjectComponent extends React.Component {
                                         title={project ? `Project: ${project.projectName}` : 'Choose project...'}
                                         expanded={projects.length === 0 || expandProjectsList}
                                         onPress={() => this.setState({ expandProjectsList: !expandProjectsList })}
+                                        right={() => <Text>{projects.length}</Text>}
                                         left={() => <List.Icon color={expandProjectsList ? theme.colors.primary : (project ? theme.colors.accent : theme.colors.text)} icon="assignment" />}
                                     >
                                         {projects.map((p) => (
@@ -346,7 +370,7 @@ class ProjectComponent extends React.Component {
                                                     color={project && project.id === p.id ? theme.colors.primary : theme.colors.text}
                                                     icon={(p.users.includes(username) ? 'assignment-ind' : 'assignment')} />
                                                 }
-                                                right={() => t.allTasksFinalized ? <List.Icon icon="done-all" color={theme.colors.accent} /> : null}
+                                                right={() => p.allTasksFinalized ? <List.Icon icon="done-all" color={theme.colors.accent} /> : null}
                                                 onPress={() => this.chooseProject(p.id)}
                                             />
                                         ))}
@@ -382,6 +406,7 @@ class ProjectComponent extends React.Component {
                                         title={task ? `Task: ${task.name}` : 'Choose task...'}
                                         expanded={project.tasks.length === 0 || expandTasksList}
                                         onPress={() => this.setState({ expandTasksList: !expandTasksList })}
+                                        right={() => <Text>{project.tasks.length}</Text>}
                                         left={() => <List.Icon color={expandTasksList ? theme.colors.primary : (project ? theme.colors.accent : theme.colors.text)} icon="event-note" />}
                                     >
                                         {project.tasks.map((t) => (
@@ -425,7 +450,7 @@ class ProjectComponent extends React.Component {
                             }
                             <Divider />
                             {project && task &&
-                                <View style={CommonStyles.sidePadding}>
+                                <View style={{paddingLeft: 8, paddingRight: 8}}>
                                     <Title>
                                         Task: {task.name}
                                     </Title>
@@ -464,33 +489,47 @@ class ProjectComponent extends React.Component {
                                                 </View>
                                             }
                                             {estimationStatus === 'ended' || estimationStatus === 'final' &&
-                                                <View>
+                                                <View style={{padding: 8}}>
                                                     <Title>
                                                         Estimation of {task.name} has ended.
                                                     </Title>
                                                     <Subheading>
-                                                        {task.stats.estimates.count} estimates recieved. ({task.stats.completion * 100}% of users).
+                                                        {task.stats.estimates.count} estimates recieved. ({Math.round(task.stats.completion * 100)}% of users).
                                                     </Subheading>
                                                     <Surface>
-                                                        <BarChart>
-                                                            <xAxis/>
+                                                        <BarChart
+                                                            style={{ height: 200, marginTop: 8, marginBottom: 16, backgroundColor: theme.colors.background }}
+                                                            data={barChart}  
+                                                            contentInset={{ top: 20, bottom: 5, left: 8, right: 8 }}
+                                                            yAccessor={({ item }) => item.value}
+                                                        >
+                                                            <XAxis
+                                                                data={barChart}
+                                                                contentInset={{ top: 5, bottom: 5, left: 8, right: 8 }}
+                                                                formatLabel={(_, index) => barChart[index].label}
+                                                            />
                                                         </BarChart>
                                                     </Surface>
-                                                    <Paragraph>
-                                                        Mean estimate {task.stats.estimates.mean} (std. dev {task.stats.estimates.stdev})
-                                                    </Paragraph>
-                                                    <Paragraph>
-                                                        Maximum: {task.stats.estimates.max} ({task.stats.users.max.join(', ')})
-                                                    </Paragraph>
-                                                    <Paragraph>
-                                                        Minimum: {task.stats.estimates.min} ({task.stats.users.min.join(', ')})
-                                                    </Paragraph>
-                                                    <Paragraph>
-                                                        Median: {task.stats.estimates.median} ({task.stats.users.median.join(', ')})
-                                                    </Paragraph>
-                                                    <Paragraph>
-                                                        Mode: {task.stats.estimates.mode} ({task.stats.users.mode.join(', ')})
-                                                    </Paragraph>
+                                                    <FlatList
+                                                        data={[
+                                                            `Mean: ${task.stats.estimates.mean} (std. dev ${task.stats.estimates.stdev})`,
+                                                            `Max: ${task.stats.estimates.max} (${task.stats.users.max.join(', ')})`,
+                                                            `Min: ${task.stats.estimates.min} (${task.stats.users.min.join(', ')})`,
+                                                            `Mode: ${task.stats.estimates.mode} (${task.stats.users.mode.join(', ')})`,
+                                                            `Median: ${task.stats.estimates.median} (${task.stats.users.median.join(', ')})`,
+                                                        ]}
+                                                        renderItem={({item}) => <Text>{item}</Text>}
+                                                    />
+                                                    <Spacer height={2}/>
+                                                    <Divider/>
+                                                    <Spacer height={2}/>
+                                                    <FlatList
+                                                        data={task.estimates}
+                                                        renderItem={({item}) => <Text>
+                                                            <Text style={{fontFamily: theme.fonts.medium}}>{item.username}</Text> 
+                                                            <Text> {item.estimate}</Text>
+                                                        </Text>}
+                                                    />
                                                     {estimationStatus !== 'final' &&
                                                         <View style={[CommonStyles.sidePadding, CommonStyles.vertPadding]}>
                                                             <Button mode="contained" icon="refresh" color={theme.colors.primary}>
@@ -518,7 +557,7 @@ class ProjectComponent extends React.Component {
                                     }
                                 </View>
                             }
-                            <Spacer height={2} />
+                            <Spacer height={10} />
                         </ScrollView>
                     }
                 </MainView>
